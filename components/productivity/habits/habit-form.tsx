@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect } from "react"
@@ -15,7 +16,9 @@ import { format } from "date-fns"
 import type { Habit } from "@/types/habit"
 import { CalendarIcon, Sparkles } from "lucide-react"
 import AIHabitEnhancer from "./ai-habit-enhancer"
+import AtomicHabitEnhancer from "./atomic-habit-enhancer"
 import { useStore } from "@/lib/store-provider"
+import { AtomicHabitEnhancement } from "@/hooks/use-atomic-habits-ai"
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
@@ -62,7 +65,9 @@ export default function HabitForm({ open, onOpenChange, onSubmit, onDelete, habi
  const [endDate, setEndDate] = useState<Date | undefined>(undefined)
  const [activeTab, setActiveTab] = useState("details")
  const [showAIEnhancer, setShowAIEnhancer] = useState(false)
+ const [showAtomicEnhancer, setShowAtomicEnhancer] = useState(false)
  const { isOnline } = useStore()
+ const [atomicHabitMeta, setAtomicHabitMeta] = useState<AtomicHabitEnhancement | null>(null)
 
  // Reset form when habit changes
  useEffect(() => {
@@ -103,6 +108,8 @@ export default function HabitForm({ open, onOpenChange, onSubmit, onDelete, habi
    setEndDate(undefined)
    setActiveTab("details")
    setShowAIEnhancer(false)
+   setShowAtomicEnhancer(false)
+   setAtomicHabitMeta(null)
  }
 
  const handleClose = () => {
@@ -138,6 +145,13 @@ export default function HabitForm({ open, onOpenChange, onSubmit, onDelete, habi
      color,
      start_date: startDate ? format(startDate, "yyyy-MM-dd") : null,
      end_date: endDate ? format(endDate, "yyyy-MM-dd") : null,
+     atomic_habit_meta: atomicHabitMeta ? {
+       trigger: atomicHabitMeta.trigger,
+       identity: atomicHabitMeta.identity,
+       small_step: atomicHabitMeta.smallStep,
+       reward: atomicHabitMeta.reward,
+       full_suggestion: atomicHabitMeta.fullSuggestion
+     } : null
    }
 
    // If editing, include the id
@@ -176,6 +190,14 @@ export default function HabitForm({ open, onOpenChange, onSubmit, onDelete, habi
    setActiveTab("details")
  }
 
+ const handleAtomicHabitEnhancement = (enhancement: AtomicHabitEnhancement) => {
+   setName(enhancement.enhancedName)
+   setDescription(enhancement.fullSuggestion)
+   setAtomicHabitMeta(enhancement)
+   setShowAtomicEnhancer(false)
+   setActiveTab("details")
+ }
+
  return (
    <Dialog open={open} onOpenChange={onOpenChange}>
      <DialogContent className="sm:max-w-[600px]">
@@ -183,173 +205,201 @@ export default function HabitForm({ open, onOpenChange, onSubmit, onDelete, habi
          <DialogTitle>{habit ? "Edit Habit" : "Add New Habit"}</DialogTitle>
        </DialogHeader>
 
-       <Tabs value={activeTab} onValueChange={setActiveTab}>
-         <TabsList className="grid w-full grid-cols-2">
-           <TabsTrigger value="details">Basic Details</TabsTrigger>
-           <TabsTrigger value="advanced">Advanced Options</TabsTrigger>
-         </TabsList>
-
-         <TabsContent value="details" className="space-y-4 py-4">
-           <div className="grid gap-2">
-             <Label htmlFor="name">Habit Name</Label>
-             <Input
-               id="name"
-               value={name}
-               onChange={(e) => setName(e.target.value)}
-               placeholder="What habit do you want to track?"
-               autoFocus
-             />
-           </div>
-
-           <div className="grid gap-2">
-             <div className="flex justify-between items-center">
-               <Label htmlFor="description">Description (Optional)</Label>
-               <Button
-                 variant="ghost"
-                 size="sm"
-                 onClick={() => setShowAIEnhancer(true)}
-                 disabled={!isOnline}
-                 className="h-8 px-2 text-xs"
-               >
-                 <Sparkles className="h-3 w-3 mr-1 text-amber-500" />
-                 Enhance with AI
-               </Button>
-             </div>
-             <Textarea
-               id="description"
-               value={description}
-               onChange={(e) => setDescription(e.target.value)}
-               placeholder="Why is this habit important to you?"
-               rows={3}
-             />
-           </div>
-
-           <div className="grid grid-cols-2 gap-4">
-             <div className="grid gap-2">
-               <Label htmlFor="frequency">Frequency</Label>
-               <Select
-                 value={frequency}
-                 onValueChange={(value: "daily" | "weekly" | "monthly") => {
-                   setFrequency(value)
-                   // Reset selected days
-                   setSelectedDaysOfWeek([])
-                   setSelectedDaysOfMonth([])
-                 }}
-               >
-                 <SelectTrigger id="frequency">
-                   <SelectValue placeholder="How often?" />
-                 </SelectTrigger>
-                 <SelectContent>
-                   {FREQUENCY_OPTIONS.map((option) => (
-                     <SelectItem key={option.value} value={option.value}>
-                       {option.label}
-                     </SelectItem>
-                   ))}
-                 </SelectContent>
-               </Select>
-             </div>
-
-             <div className="grid gap-2">
-               <Label htmlFor="color">Color</Label>
-               <Select value={color} onValueChange={setColor}>
-                 <SelectTrigger id="color" className="w-full">
-                   <SelectValue>
-                     <div className="flex items-center">
-                       <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color }}></div>
-                       <span>{COLOR_OPTIONS.find((c) => c.value === color)?.label}</span>
-                     </div>
-                   </SelectValue>
-                 </SelectTrigger>
-                 <SelectContent>
-                   {COLOR_OPTIONS.map((color) => (
-                     <SelectItem key={color.value} value={color.value}>
-                       <div className="flex items-center">
-                         <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color.value }}></div>
-                         <span>{color.label}</span>
-                     </div>
-                   </SelectItem>
-                 ))}
-               </SelectContent>
-             </Select>
-           </div>
-         </div>
-       </TabsContent>
-
-       <TabsContent value="advanced" className="space-y-4 py-4">
-         {frequency === "weekly" && (
-           <div className="grid gap-2">
-             <Label>Days of the Week</Label>
-             <div className="flex flex-wrap gap-2">
-               {DAYS_OF_WEEK.map((day) => (
-                 <div key={day.value} className="flex items-center space-x-2">
-                   <Checkbox
-                     id={`day-${day.value}`}
-                     checked={selectedDaysOfWeek.includes(day.value)}
-                     onCheckedChange={() => toggleDayOfWeek(day.value)}
-                   />
-                   <label
-                     htmlFor={`day-${day.value}`}
-                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                   >
-                     {day.label.substring(0, 3)}
-                   </label>
-                 </div>
-               ))}
-             </div>
-             <p className="text-xs text-muted-foreground mt-1">
-               {selectedDaysOfWeek.length === 0
-                 ? "If no days are selected, the habit will be tracked every day."
-                 : `This habit will be tracked on ${selectedDaysOfWeek
-                     .map((d) => DAYS_OF_WEEK.find((day) => day.value === d)?.label)
-                     .join(", ")}.`}
-             </p>
-           </div>
-         )}
-
-         <div className="grid gap-2">
-           <Label htmlFor="startDate">Start Date</Label>
-           <Popover>
-             <PopoverTrigger asChild>
-               <Button variant="outline" className="w-full justify-start text-left font-normal">
-                 <CalendarIcon className="mr-2 h-4 w-4" />
-                 {startDate ? format(startDate, "PPP") : "Select start date"}
-               </Button>
-             </PopoverTrigger>
-             <PopoverContent className="w-auto p-0">
-               <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-             </PopoverContent>
-           </Popover>
-         </div>
-
-         <div className="grid gap-2">
-           <Label htmlFor="endDate">End Date (Optional)</Label>
-           <Popover>
-             <PopoverTrigger asChild>
-               <Button variant="outline" className="w-full justify-start text-left font-normal">
-                 <CalendarIcon className="mr-2 h-4 w-4" />
-                 {endDate ? format(endDate, "PPP") : "No end date"}
-               </Button>
-             </PopoverTrigger>
-             <PopoverContent className="w-auto p-0">
-               <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-             </PopoverContent>
-           </Popover>
-         </div>
-       </TabsContent>
-
-       {showAIEnhancer ? (
+       {showAtomicEnhancer ? (
+         <AtomicHabitEnhancer 
+           habitName={name}
+           frequency={frequency}
+           onSave={handleAtomicHabitEnhancement}
+           onCancel={() => setShowAtomicEnhancer(false)}
+         />
+       ) : showAIEnhancer ? (
          <AIHabitEnhancer
            habitDescription={description}
            onSave={handleEnhancedDescription}
            onCancel={() => setShowAIEnhancer(false)}
          />
        ) : (
-         <DialogFooter className="flex justify-between sm:justify-between">
-           <Button variant="outline" onClick={handleClose}>
-             Cancel
-           </Button>
-           <Button onClick={handleSubmit}>{habit ? "Save Changes" : "Add Habit"}</Button>
-         </DialogFooter>
+         <>
+           <Tabs value={activeTab} onValueChange={setActiveTab}>
+             <TabsList className="grid w-full grid-cols-2">
+               <TabsTrigger value="details">Basic Details</TabsTrigger>
+               <TabsTrigger value="advanced">Advanced Options</TabsTrigger>
+             </TabsList>
+
+             <TabsContent value="details" className="space-y-4 py-4">
+               <div className="grid gap-2">
+                 <Label htmlFor="name">Habit Name</Label>
+                 <Input
+                   id="name"
+                   value={name}
+                   onChange={(e) => setName(e.target.value)}
+                   placeholder="What habit do you want to track?"
+                   autoFocus
+                 />
+               </div>
+
+               <div className="grid gap-2">
+                 <div className="flex justify-between items-center">
+                   <Label htmlFor="description">Description (Optional)</Label>
+                   <div className="flex gap-2">
+                     <Button
+                       variant="ghost"
+                       size="sm"
+                       onClick={() => setShowAIEnhancer(true)}
+                       disabled={!isOnline}
+                       className="h-8 px-2 text-xs"
+                     >
+                       <Sparkles className="h-3 w-3 mr-1 text-amber-500" />
+                       AI Enhance
+                     </Button>
+                     <Button
+                       variant="outline"
+                       size="sm"
+                       onClick={() => setShowAtomicEnhancer(true)}
+                       disabled={!name.trim() || !isOnline}
+                       className="h-8 px-2 text-xs"
+                     >
+                       <Sparkles className="h-3 w-3 mr-1 text-amber-500" />
+                       Atomic Habits
+                     </Button>
+                   </div>
+                 </div>
+                 <Textarea
+                   id="description"
+                   value={description}
+                   onChange={(e) => setDescription(e.target.value)}
+                   placeholder="Why is this habit important to you?"
+                   rows={3}
+                 />
+                 {atomicHabitMeta && (
+                   <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-md border border-green-200 dark:border-green-900 text-xs text-muted-foreground">
+                     <p className="font-medium text-green-700 dark:text-green-300 mb-1">Atomic Habit Format:</p>
+                     <p>{atomicHabitMeta.fullSuggestion}</p>
+                   </div>
+                 )}
+               </div>
+
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="grid gap-2">
+                   <Label htmlFor="frequency">Frequency</Label>
+                   <Select
+                     value={frequency}
+                     onValueChange={(value: "daily" | "weekly" | "monthly") => {
+                       setFrequency(value)
+                       // Reset selected days
+                       setSelectedDaysOfWeek([])
+                       setSelectedDaysOfMonth([])
+                     }}
+                   >
+                     <SelectTrigger id="frequency">
+                       <SelectValue placeholder="How often?" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       {FREQUENCY_OPTIONS.map((option) => (
+                         <SelectItem key={option.value} value={option.value}>
+                           {option.label}
+                         </SelectItem>
+                       ))}
+                     </SelectContent>
+                   </Select>
+                 </div>
+
+                 <div className="grid gap-2">
+                   <Label htmlFor="color">Color</Label>
+                   <Select value={color} onValueChange={setColor}>
+                     <SelectTrigger id="color" className="w-full">
+                       <SelectValue>
+                         <div className="flex items-center">
+                           <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color }}></div>
+                           <span>{COLOR_OPTIONS.find((c) => c.value === color)?.label}</span>
+                         </div>
+                       </SelectValue>
+                     </SelectTrigger>
+                     <SelectContent>
+                       {COLOR_OPTIONS.map((color) => (
+                         <SelectItem key={color.value} value={color.value}>
+                           <div className="flex items-center">
+                             <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color.value }}></div>
+                             <span>{color.label}</span>
+                         </div>
+                       </SelectItem>
+                     ))}
+                   </SelectContent>
+                 </Select>
+               </div>
+             </div>
+           </TabsContent>
+
+           <TabsContent value="advanced" className="space-y-4 py-4">
+             {frequency === "weekly" && (
+               <div className="grid gap-2">
+                 <Label>Days of the Week</Label>
+                 <div className="flex flex-wrap gap-2">
+                   {DAYS_OF_WEEK.map((day) => (
+                     <div key={day.value} className="flex items-center space-x-2">
+                       <Checkbox
+                         id={`day-${day.value}`}
+                         checked={selectedDaysOfWeek.includes(day.value)}
+                         onCheckedChange={() => toggleDayOfWeek(day.value)}
+                       />
+                       <label
+                         htmlFor={`day-${day.value}`}
+                         className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                       >
+                         {day.label.substring(0, 3)}
+                       </label>
+                     </div>
+                   ))}
+                 </div>
+                 <p className="text-xs text-muted-foreground mt-1">
+                   {selectedDaysOfWeek.length === 0
+                     ? "If no days are selected, the habit will be tracked every day."
+                     : `This habit will be tracked on ${selectedDaysOfWeek
+                         .map((d) => DAYS_OF_WEEK.find((day) => day.value === d)?.label)
+                         .join(", ")}.`}
+                 </p>
+               </div>
+             )}
+
+             <div className="grid gap-2">
+               <Label htmlFor="startDate">Start Date</Label>
+               <Popover>
+                 <PopoverTrigger asChild>
+                   <Button variant="outline" className="w-full justify-start text-left font-normal">
+                     <CalendarIcon className="mr-2 h-4 w-4" />
+                     {startDate ? format(startDate, "PPP") : "Select start date"}
+                   </Button>
+                 </PopoverTrigger>
+                 <PopoverContent className="w-auto p-0">
+                   <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
+                 </PopoverContent>
+               </Popover>
+             </div>
+
+             <div className="grid gap-2">
+               <Label htmlFor="endDate">End Date (Optional)</Label>
+               <Popover>
+                 <PopoverTrigger asChild>
+                   <Button variant="outline" className="w-full justify-start text-left font-normal">
+                     <CalendarIcon className="mr-2 h-4 w-4" />
+                     {endDate ? format(endDate, "PPP") : "No end date"}
+                   </Button>
+                 </PopoverTrigger>
+                 <PopoverContent className="w-auto p-0">
+                   <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
+                 </PopoverContent>
+               </Popover>
+             </div>
+           </TabsContent>
+           </Tabs>
+
+           <DialogFooter className="flex justify-between sm:justify-between">
+             <Button variant="outline" onClick={handleClose}>
+               Cancel
+             </Button>
+             <Button onClick={handleSubmit}>{habit ? "Save Changes" : "Add Habit"}</Button>
+           </DialogFooter>
+         </>
        )}
      </DialogContent>
    </Dialog>

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { Textarea } from "@/components/ui/textarea"
@@ -8,11 +9,14 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Check, X, Trophy, TrendingUp, Calendar, BarChart } from "lucide-react"
+import { Plus, Check, X, Trophy, TrendingUp, Calendar, BarChart, Sparkles } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
+import { Badge } from "@/components/ui/badge"
+import { useStore } from "@/lib/store-provider"
+import { AtomicHabitEnhancement } from "@/hooks/use-atomic-habits-ai"
 
 interface Habit {
   id: string
@@ -27,6 +31,13 @@ interface Habit {
   description?: string
   reminderTime?: string
   user_id?: string
+  atomic_habit_meta?: {
+    trigger: string
+    identity: string
+    small_step: string
+    reward: string
+    full_suggestion: string
+  }
 }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -40,6 +51,7 @@ const CATEGORIES = [
 
 export function HabitTracker() {
   const { toast } = useToast()
+  const { isOnline, isSupabaseConnected } = useStore()
   const [habits, setHabits] = useState<Habit[]>([
     {
       id: "1",
@@ -79,6 +91,13 @@ export function HabitTracker() {
       totalCompletions: 8,
       description: "10 minutes of guided meditation",
       reminderTime: "08:00",
+      atomic_habit_meta: {
+        trigger: "After I brush my teeth in the morning",
+        identity: "someone who stays calm under pressure",
+        small_step: "meditate for 2 minutes",
+        reward: "take a deep breath and smile",
+        full_suggestion: "After I brush my teeth in the morning, I will meditate for 2 minutes to become someone who stays calm under pressure. I'll take a deep breath and smile afterward to celebrate this small win."
+      }
     },
     {
       id: "4",
@@ -151,6 +170,7 @@ export function HabitTracker() {
           description: habit.description,
           reminderTime: habit.reminder_time,
           user_id: habit.user_id,
+          atomic_habit_meta: habit.atomic_habit_meta
         }))
         setHabits(transformedHabits)
       }
@@ -185,7 +205,7 @@ export function HabitTracker() {
       totalCompletions: 0,
     }
 
-    if (userId) {
+    if (userId && isSupabaseConnected) {
       // Save to Supabase
       try {
         const { error } = await supabase.from("habits").insert({
@@ -200,6 +220,7 @@ export function HabitTracker() {
           description: habit.description,
           reminder_time: habit.reminderTime,
           user_id: userId,
+          atomic_habit_meta: habit.atomic_habit_meta
         })
 
         if (error) throw error
@@ -217,8 +238,16 @@ export function HabitTracker() {
         setHabits([...habits, habit])
       }
     } else {
-      // Just update local state if no user ID
+      // Save to localStorage if offline or not connected to Supabase
       setHabits([...habits, habit])
+      
+      // Store in localStorage as backup
+      try {
+        const existingHabits = JSON.parse(localStorage.getItem('offline-habits') || '[]');
+        localStorage.setItem('offline-habits', JSON.stringify([...existingHabits, habit]));
+      } catch (e) {
+        console.error("Failed to save to localStorage:", e);
+      }
     }
 
     setNewHabit({
@@ -238,7 +267,7 @@ export function HabitTracker() {
   }
 
   const removeHabit = async (id: string) => {
-    if (userId) {
+    if (userId && isSupabaseConnected) {
       try {
         const { error } = await supabase.from("habits").delete().eq("id", id)
 
@@ -257,8 +286,16 @@ export function HabitTracker() {
         setHabits(habits.filter((habit) => habit.id !== id))
       }
     } else {
-      // Just update local state if no user ID
+      // Just update local state if no user ID or offline
       setHabits(habits.filter((habit) => habit.id !== id))
+      
+      // Update localStorage
+      try {
+        const existingHabits = JSON.parse(localStorage.getItem('offline-habits') || '[]');
+        localStorage.setItem('offline-habits', JSON.stringify(existingHabits.filter((h: Habit) => h.id !== id)));
+      } catch (e) {
+        console.error("Failed to update localStorage:", e);
+      }
     }
 
     toast({
@@ -420,7 +457,12 @@ export function HabitTracker() {
                     <tr key={habit.id} className="border-t">
                       <td className="py-3">
                         <div className="cursor-pointer" onClick={() => openHabitDetails(habit)}>
-                          <div className="font-medium text-sm">{habit.name}</div>
+                          <div className="font-medium text-sm flex items-center gap-1">
+                            {habit.name}
+                            {habit.atomic_habit_meta && (
+                              <Sparkles className="h-3 w-3 text-amber-500" title="Atomic Habit" />
+                            )}
+                          </div>
                           <div className="text-xs text-muted-foreground">{getCategoryLabel(habit.category)}</div>
                         </div>
                       </td>
@@ -479,7 +521,12 @@ export function HabitTracker() {
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <h3 className="font-medium">{habit.name}</h3>
+                          <h3 className="font-medium flex items-center gap-1">
+                            {habit.name}
+                            {habit.atomic_habit_meta && (
+                              <Sparkles className="h-3 w-3 text-amber-500" title="Atomic Habit" />
+                            )}
+                          </h3>
                           <p className="text-xs text-muted-foreground">{getCategoryLabel(habit.category)}</p>
                         </div>
                         <Button
@@ -640,6 +687,36 @@ export function HabitTracker() {
                   </p>
                 </div>
 
+                {selectedHabit.atomic_habit_meta && (
+                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-900 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      <h3 className="text-sm font-medium">Atomic Habit Format</h3>
+                    </div>
+                    
+                    <p className="text-sm">{selectedHabit.atomic_habit_meta.full_suggestion}</p>
+                    
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div>
+                        <Badge variant="outline" className="mb-1 bg-blue-50 dark:bg-blue-900/20 text-xs">Trigger</Badge>
+                        <p className="text-xs">{selectedHabit.atomic_habit_meta.trigger}</p>
+                      </div>
+                      <div>
+                        <Badge variant="outline" className="mb-1 bg-purple-50 dark:bg-purple-900/20 text-xs">Identity</Badge>
+                        <p className="text-xs">Become {selectedHabit.atomic_habit_meta.identity}</p>
+                      </div>
+                      <div>
+                        <Badge variant="outline" className="mb-1 bg-green-50 dark:bg-green-900/20 text-xs">Small Step</Badge>
+                        <p className="text-xs">{selectedHabit.atomic_habit_meta.small_step}</p>
+                      </div>
+                      <div>
+                        <Badge variant="outline" className="mb-1 bg-amber-50 dark:bg-amber-900/20 text-xs">Reward</Badge>
+                        <p className="text-xs">{selectedHabit.atomic_habit_meta.reward}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <h3 className="text-sm font-medium mb-1">Category</h3>
@@ -699,5 +776,5 @@ export function HabitTracker() {
       </Dialog>
     </CardContent>
   </Card>
-  \
+  )
 }
