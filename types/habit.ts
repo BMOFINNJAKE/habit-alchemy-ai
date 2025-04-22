@@ -1,4 +1,3 @@
-
 export interface Habit {
   id: string
   name: string
@@ -14,13 +13,6 @@ export interface Habit {
   start_date?: string
   end_date?: string
   user_id: string
-  atomic_habits_data?: {
-    identity?: string
-    trigger?: string
-    small_step?: string
-    reward?: string
-  }
-  ai_enhanced?: boolean
 }
 
 export interface HabitLog {
