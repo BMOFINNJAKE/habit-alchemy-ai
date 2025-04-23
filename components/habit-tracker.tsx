@@ -1,7 +1,7 @@
 "use client"
 
-import { Textarea } from "@/components/ui/textarea"
 import { useState, useEffect } from "react"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -106,7 +106,7 @@ export function HabitTracker() {
   })
   const [userId, setUserId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<"tracker" | "stats">("tracker")
+  const [viewMode, setViewMode] = useState<"tracker" | "stats" | "systems">("tracker")
   const [habitDetailsOpen, setHabitDetailsOpen] = useState(false)
   const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null)
 
@@ -385,10 +385,11 @@ export function HabitTracker() {
         <div className="flex justify-between items-center">
           <CardTitle className="text-lg">Habit Tracker</CardTitle>
           <div className="flex gap-2">
-            <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "tracker" | "stats")}>
+            <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "tracker" | "stats" | "systems")}>
               <TabsList>
                 <TabsTrigger value="tracker">Tracker</TabsTrigger>
                 <TabsTrigger value="stats">Statistics</TabsTrigger>
+                <TabsTrigger value="systems">Systems</TabsTrigger>
               </TabsList>
             </Tabs>
             <Button size="sm" onClick={() => setNewHabitOpen(true)}>
@@ -398,6 +399,7 @@ export function HabitTracker() {
           </div>
         </div>
       </CardHeader>
+
       <CardContent>
         <TabsContent value="tracker" className="mt-0">
           <div className="overflow-x-auto">
@@ -534,6 +536,34 @@ export function HabitTracker() {
             ) : (
               <div className="col-span-2 text-center py-8 text-muted-foreground">No habits added yet</div>
             )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="systems" className="mt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {habits.map((habit) => (
+              <Card key={habit.id}>
+                <CardContent className="p-4">
+                  <div className="mb-4">
+                    <h3 className="font-medium">{habit.name}</h3>
+                    <p className="text-sm text-muted-foreground">{getCategoryLabel(habit.category)}</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Identity</Label>
+                      <p className="text-sm">I am someone who {habit.description?.toLowerCase() || "..."}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs">System</Label>
+                      <p className="text-sm">
+                        Make it {habit.frequency === "daily" ? "a daily ritual" : `part of your ${habit.frequency} routine`}
+                      </p>
+                    </div>
+                    <Progress value={getCompletionRate(habit)} className="h-2" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </TabsContent>
 
@@ -699,4 +729,5 @@ export function HabitTracker() {
       </Dialog>
     </CardContent>
   </Card>
+  )
 }

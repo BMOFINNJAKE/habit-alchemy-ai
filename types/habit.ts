@@ -1,3 +1,4 @@
+
 export interface Habit {
   id: string
   name: string
@@ -7,12 +8,15 @@ export interface Habit {
     days?: string[] | number[]
     [key: string]: any
   }
+  category: string
   color?: string
   icon?: string
   target?: number
   start_date?: string
   end_date?: string
   user_id: string
+  identity?: string
+  system?: string
 }
 
 export interface HabitLog {
