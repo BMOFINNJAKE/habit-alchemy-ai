@@ -1,653 +1,787 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import {
-  format,
-  eachDayOfInterval,
-  startOfMonth,
-  endOfMonth,
-  isSameDay,
-  isSameMonth,
-  addMonths,
-  subMonths,
-} from "date-fns"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, ChevronLeft, ChevronRight, Calendar, BarChart, CheckCircle2, Info, Sparkles } from "lucide-react"
+import { Plus, Check, X, Trophy, TrendingUp, Calendar, BarChart, Sparkles } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useSupabaseClient } from "@supabase/auth-helpers-react"
-import HabitForm from "./habit-form"
-import HabitProgress from "./habit-progress"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import type { Habit, HabitLog } from "@/types/habit"
+import { supabase } from "@/lib/supabase"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Progress } from "@/components/ui/progress"
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import type { Habit } from "@/types/habit"
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+const CATEGORIES = [
+  { value: "health", label: "Health & Fitness" },
+  { value: "productivity", label: "Productivity" },
+  { value: "learning", label: "Learning" },
+  { value: "mindfulness", label: "Mindfulness" },
+  { value: "social", label: "Social" },
+]
 
 export default function HabitTracker() {
-  const [habits, setHabits] = useState<Habit[]>([])
-  const [habitLogs, setHabitLogs] = useState<HabitLog[]>([])
-  const [selectedMonth, setSelectedMonth] = useState(new Date())
-  const [isLoading, setIsLoading] = useState(true)
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingHabit, setEditingHabit] = useState<Habit | null>(null)
-  const [view, setView] = useState<"calendar" | "progress">("calendar")
-  const supabase = useSupabaseClient()
   const { toast } = useToast()
-
-  // Generate days for the selected month
-  const daysInMonth = eachDayOfInterval({
-    start: startOfMonth(selectedMonth),
-    end: endOfMonth(selectedMonth),
+  const [habits, setHabits] = useState<Habit[]>([
+    {
+      id: "1",
+      name: "Morning Exercise",
+      category: "health",
+      frequency: "daily",
+      streak: 3,
+      completedDays: ["Mon", "Tue", "Wed"],
+      startDate: new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0], // 7 days ago
+      longestStreak: 5,
+      totalCompletions: 12,
+      description: "30 minutes of cardio or strength training",
+      reminderTime: "07:00",
+      user_id: "test",
+    },
+    {
+      id: "2",
+      name: "Read 30 minutes",
+      category: "learning",
+      frequency: "daily",
+      streak: 5,
+      completedDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      startDate: new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0], // 14 days ago
+      longestStreak: 7,
+      totalCompletions: 18,
+      description: "Read non-fiction books or articles",
+      reminderTime: "21:00",
+      user_id: "test",
+    },
+    {
+      id: "3",
+      name: "Meditate",
+      category: "mindfulness",
+      frequency: "daily",
+      streak: 2,
+      completedDays: ["Tue", "Wed"],
+      startDate: new Date(Date.now() - 5 * 86400000).toISOString().split("T")[0], // 5 days ago
+      longestStreak: 3,
+      totalCompletions: 8,
+      description: "10 minutes of guided meditation",
+      reminderTime: "08:00",
+      user_id: "test",
+    },
+    {
+      id: "4",
+      name: "Weekly Review",
+      category: "productivity",
+      frequency: "weekly",
+      streak: 1,
+      completedDays: ["Sun"],
+      startDate: new Date(Date.now() - 21 * 86400000).toISOString().split("T")[0], // 21 days ago
+      longestStreak: 3,
+      totalCompletions: 4,
+      description: "Review goals and plan for the week ahead",
+      user_id: "test",
+    },
+  ])
+  const [newHabitOpen, setNewHabitOpen] = useState(false)
+  const [newHabit, setNewHabit] = useState<
+    Omit<Habit, "id" | "streak" | "completedDays" | "longestStreak" | "totalCompletions" | "user_id">
+  >({
+    name: "",
+    category: "productivity",
+    frequency: "daily",
+    startDate: new Date().toISOString().split("T")[0],
+    description: "",
+    reminderTime: "",
   })
+  const [userId, setUserId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [viewMode, setViewMode] = useState<"tracker" | "stats" | "systems">("tracker")
+  const [habitDetailsOpen, setHabitDetailsOpen] = useState(false)
+  const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null)
 
-  // Load habits and logs from Supabase
+  // Get user ID on component mount
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true)
-
-        // Get the current user
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) {
-          // If not authenticated, try loading from localStorage
-          const savedHabits = localStorage.getItem("habits")
-          const savedLogs = localStorage.getItem("habit-logs")
-
-          if (savedHabits) {
-            try {
-              setHabits(JSON.parse(savedHabits))
-            } catch (e) {
-              console.error("Error parsing saved habits:", e)
-            }
-          }
-
-          if (savedLogs) {
-            try {
-              setHabitLogs(JSON.parse(savedLogs))
-            } catch (e) {
-              console.error("Error parsing saved logs:", e)
-            }
-          }
-
-          return
-        }
-
-        // Fetch habits
-        const { data: habitsData, error: habitsError } = await supabase
-          .from("habits")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-
-        if (habitsError) throw habitsError
-
-        // Fetch habit logs for the selected month
-        const startDate = format(startOfMonth(selectedMonth), "yyyy-MM-dd")
-        const endDate = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
-
-        const { data: logsData, error: logsError } = await supabase
-          .from("habit_logs")
-          .select("*")
-          .gte("date", startDate)
-          .lte("date", endDate)
-          .eq("user_id", user.id)
-
-        if (logsError) throw logsError
-
-        setHabits(habitsData || [])
-        setHabitLogs(logsData || [])
-
-        // Save to localStorage for offline access
-        localStorage.setItem("habits", JSON.stringify(habitsData || []))
-        localStorage.setItem("habit-logs", JSON.stringify(logsData || []))
-      } catch (error) {
-        console.error("Error loading habits data:", error)
-        toast({
-          title: "Error loading habits",
-          description: "We couldn't load your habits from the cloud. Using local data instead.",
-          variant: "destructive",
-        })
-
-        // Try loading from localStorage as fallback
-        const savedHabits = localStorage.getItem("habits")
-        const savedLogs = localStorage.getItem("habit-logs")
-
-        if (savedHabits) {
-          try {
-            setHabits(JSON.parse(savedHabits))
-          } catch (e) {
-            console.error("Error parsing saved habits:", e)
-          }
-        }
-
-        if (savedLogs) {
-          try {
-            setHabitLogs(JSON.parse(savedLogs))
-          } catch (e) {
-            console.error("Error parsing saved logs:", e)
-          }
-        }
-      } finally {
+    const getUser = async () => {
+      const { data } = await supabase.auth.getUser()
+      if (data?.user) {
+        setUserId(data.user.id)
+        fetchHabits(data.user.id)
+      } else {
         setIsLoading(false)
       }
     }
+    getUser()
+  }, [])
 
-    loadData()
-  }, [selectedMonth, supabase, toast])
-
-  // Add a new habit
-  const handleAddHabit = async (habit: Omit<Habit, "id" | "user_id">) => {
+  // Fetch habits from Supabase
+  const fetchHabits = async (uid: string) => {
+    setIsLoading(true)
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        // Handle offline mode
-        const newHabit = {
-          ...habit,
-          id: Math.random().toString(36).substring(2, 11),
-          user_id: "local",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-
-        const updatedHabits = [newHabit, ...habits]
-        setHabits(updatedHabits)
-        localStorage.setItem("habits", JSON.stringify(updatedHabits))
-
-        toast({
-          title: "Habit created locally",
-          description: "Your habit was saved locally. Sign in to sync across devices.",
-        })
-        return
-      }
-
       const { data, error } = await supabase
         .from("habits")
-        .insert({
-          ...habit,
-          user_id: user.id,
-        })
-        .select()
-        .single()
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
 
       if (error) throw error
 
-      const updatedHabits = [data, ...habits]
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
-
-      toast({
-        title: "Habit created",
-        description: "Your new habit has been added to your tracker.",
-      })
+      if (data) {
+        // Transform data to match our Habit interface
+        const transformedHabits = data.map((habit) => ({
+          id: habit.id,
+          name: habit.name,
+          category: habit.category || "productivity",
+          frequency: habit.frequency || "daily",
+          streak: habit.streak || 0,
+          completedDays: habit.completed_days || [],
+          startDate: habit.start_date || new Date().toISOString().split("T")[0],
+          longestStreak: habit.longest_streak || 0,
+          totalCompletions: habit.total_completions || 0,
+          description: habit.description,
+          reminderTime: habit.reminder_time,
+          user_id: habit.user_id,
+          identity: habit.identity,
+          system: habit.system,
+          ai_suggestions: habit.ai_suggestions,
+        }))
+        setHabits(transformedHabits)
+      }
     } catch (error) {
-      console.error("Error adding habit:", error)
+      console.error("Error fetching habits:", error)
       toast({
-        title: "Error creating habit",
-        description: "Your habit was saved locally but couldn't be synced to the cloud.",
+        title: "Error",
+        description: "Failed to fetch habits. Using sample data instead.",
         variant: "destructive",
       })
-
-      // Add to local state anyway
-      const newHabit = {
-        ...habit,
-        id: Math.random().toString(36).substring(2, 11),
-        user_id: "local",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-
-      const updatedHabits = [newHabit, ...habits]
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // Update an existing habit
-  const handleUpdateHabit = async (updatedHabit: Habit) => {
-    try {
-      // If this is a local habit (no Supabase connection)
-      if (updatedHabit.user_id === "local") {
-        const updatedHabits = habits.map((habit) =>
-          habit.id === updatedHabit.id ? { ...updatedHabit, updated_at: new Date().toISOString() } : habit,
-        )
-        setHabits(updatedHabits)
-        localStorage.setItem("habits", JSON.stringify(updatedHabits))
-
-        toast({
-          title: "Habit updated locally",
-          description: "Your habit has been updated in local storage.",
-        })
-        return
-      }
-
-      const { error } = await supabase
-        .from("habits")
-        .update({
-          name: updatedHabit.name,
-          description: updatedHabit.description,
-          frequency: updatedHabit.frequency,
-          frequency_config: updatedHabit.frequency_config,
-          color: updatedHabit.color,
-          icon: updatedHabit.icon,
-          target: updatedHabit.target,
-          start_date: updatedHabit.start_date,
-          end_date: updatedHabit.end_date,
-          ai_suggestions: updatedHabit.ai_suggestions,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", updatedHabit.id)
-
-      if (error) throw error
-
-      const updatedHabits = habits.map((habit) => (habit.id === updatedHabit.id ? updatedHabit : habit))
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
-
+  const addHabit = async () => {
+    if (!newHabit.name) {
       toast({
-        title: "Habit updated",
-        description: "Your habit has been updated successfully.",
-      })
-    } catch (error) {
-      console.error("Error updating habit:", error)
-      toast({
-        title: "Error updating habit",
-        description: "Your changes were saved locally but couldn't be synced to the cloud.",
+        title: "Error",
+        description: "Habit name is required",
         variant: "destructive",
       })
-
-      // Update local state anyway
-      const updatedHabits = habits.map((habit) => (habit.id === updatedHabit.id ? updatedHabit : habit))
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
+      return
     }
-  }
 
-  // Delete a habit
-  const handleDeleteHabit = async (id: string) => {
-    try {
-      // Check if this is a local habit
-      const habitToDelete = habits.find((h) => h.id === id)
-      if (!habitToDelete || habitToDelete.user_id === "local") {
-        const updatedHabits = habits.filter((habit) => habit.id !== id)
-        setHabits(updatedHabits)
-        localStorage.setItem("habits", JSON.stringify(updatedHabits))
+    const habit: Habit = {
+      ...newHabit,
+      id: Date.now().toString(),
+      streak: 0,
+      completedDays: [],
+      longestStreak: 0,
+      totalCompletions: 0,
+      user_id: userId || "test",
+    }
 
-        toast({
-          title: "Habit deleted locally",
-          description: "Your habit has been removed from local storage.",
+    if (userId) {
+      // Save to Supabase
+      try {
+        const { error } = await supabase.from("habits").insert({
+          name: habit.name,
+          category: habit.category,
+          frequency: habit.frequency,
+          streak: 0,
+          completed_days: [],
+          start_date: habit.startDate,
+          longest_streak: 0,
+          total_completions: 0,
+          description: habit.description,
+          reminder_time: habit.reminderTime,
+          user_id: userId,
         })
-        return
-      }
-
-      const { error } = await supabase.from("habits").delete().eq("id", id)
-
-      if (error) throw error
-
-      const updatedHabits = habits.filter((habit) => habit.id !== id)
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
-
-      toast({
-        title: "Habit deleted",
-        description: "Your habit has been removed from your tracker.",
-      })
-    } catch (error) {
-      console.error("Error deleting habit:", error)
-      toast({
-        title: "Error deleting habit",
-        description: "The habit was removed locally but we couldn't sync this change to the cloud.",
-        variant: "destructive",
-      })
-
-      // Remove from local state anyway
-      const updatedHabits = habits.filter((habit) => habit.id !== id)
-      setHabits(updatedHabits)
-      localStorage.setItem("habits", JSON.stringify(updatedHabits))
-    }
-  }
-
-  // Toggle habit completion for a specific date
-  const toggleHabitCompletion = async (habitId: string, date: Date) => {
-    const dateString = format(date, "yyyy-MM-dd")
-
-    // Check if there's already a log for this habit and date
-    const existingLog = habitLogs.find((log) => log.habit_id === habitId && log.date === dateString)
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      // Handle offline mode
-      if (!user) {
-        if (existingLog) {
-          // Remove the log locally
-          const updatedLogs = habitLogs.filter((log) => !(log.habit_id === habitId && log.date === dateString))
-          setHabitLogs(updatedLogs)
-          localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
-        } else {
-          // Add a new log locally
-          const newLog = {
-            id: Math.random().toString(36).substring(2, 11),
-            habit_id: habitId,
-            date: dateString,
-            user_id: "local",
-            value: 1,
-            created_at: new Date().toISOString(),
-          }
-          const updatedLogs = [...habitLogs, newLog]
-          setHabitLogs(updatedLogs)
-          localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
-        }
-        return
-      }
-
-      if (existingLog) {
-        // Delete the log to mark as incomplete
-        const { error } = await supabase.from("habit_logs").delete().eq("id", existingLog.id)
 
         if (error) throw error
 
-        // Update local state
-        const updatedLogs = habitLogs.filter((log) => log.id !== existingLog.id)
-        setHabitLogs(updatedLogs)
-        localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
-      } else {
-        // Create a new log to mark as complete
-        const { data, error } = await supabase
-          .from("habit_logs")
-          .insert({
-            habit_id: habitId,
-            date: dateString,
-            user_id: user.id,
-            value: 1, // Default completion value
-          })
-          .select()
-          .single()
+        // Refresh habits
+        fetchHabits(userId)
+      } catch (error) {
+        console.error("Error adding habit:", error)
+        toast({
+          title: "Error",
+          description: "Failed to save habit to database. Adding locally only.",
+          variant: "destructive",
+        })
+        // Fall back to local state
+        setHabits([...habits, habit])
+      }
+    } else {
+      // Just update local state if no user ID
+      setHabits([...habits, habit])
+    }
+
+    setNewHabit({
+      name: "",
+      category: "productivity",
+      frequency: "daily",
+      startDate: new Date().toISOString().split("T")[0],
+      description: "",
+      reminderTime: "",
+    })
+    setNewHabitOpen(false)
+
+    toast({
+      title: "Habit added",
+      description: "Your new habit has been added to the tracker",
+    })
+  }
+
+  const removeHabit = async (id: string) => {
+    if (userId) {
+      try {
+        const { error } = await supabase.from("habits").delete().eq("id", id)
 
         if (error) throw error
 
-        // Update local state
-        const updatedLogs = [...habitLogs, data]
-        setHabitLogs(updatedLogs)
-        localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
+        // Refresh habits
+        fetchHabits(userId)
+      } catch (error) {
+        console.error("Error removing habit:", error)
+        toast({
+          title: "Error",
+          description: "Failed to remove habit from database. Removing locally only.",
+          variant: "destructive",
+        })
+        // Fall back to local state
+        setHabits(habits.filter((habit) => habit.id !== id))
       }
-    } catch (error) {
-      console.error("Error toggling habit completion:", error)
-      toast({
-        title: "Sync error",
-        description: "Your change was saved locally but couldn't be synced to the cloud.",
-        variant: "destructive",
-      })
-
-      // Update local state anyway for immediate feedback
-      if (existingLog) {
-        const updatedLogs = habitLogs.filter((log) => log.id !== existingLog.id)
-        setHabitLogs(updatedLogs)
-        localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
-      } else {
-        const newLog = {
-          id: Math.random().toString(36).substring(2, 11),
-          habit_id: habitId,
-          date: dateString,
-          user_id: "local",
-          value: 1,
-          created_at: new Date().toISOString(),
-        }
-        const updatedLogs = [...habitLogs, newLog]
-        setHabitLogs(updatedLogs)
-        localStorage.setItem("habit-logs", JSON.stringify(updatedLogs))
-      }
+    } else {
+      // Just update local state if no user ID
+      setHabits(habits.filter((habit) => habit.id !== id))
     }
+
+    toast({
+      title: "Habit removed",
+      description: "Your habit has been removed from the tracker",
+    })
   }
 
-  // Check if a habit is completed for a specific date
-  const isHabitCompleted = (habitId: string, date: Date): boolean => {
-    const dateString = format(date, "yyyy-MM-dd")
-    return habitLogs.some((log) => log.habit_id === habitId && log.date === dateString)
-  }
+  const toggleDay = async (habitId: string, day: string) => {
+    // Find the habit to update
+    const habitToUpdate = habits.find((h) => h.id === habitId)
+    if (!habitToUpdate) return
 
-  // Get the streak for a habit
-  const getHabitStreak = (habitId: string): number => {
-    // Sort logs by date and filter for this habit
-    const sortedLogs = habitLogs
-      .filter((log) => log.habit_id === habitId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    // Calculate new completed days
+    const completedDays = habitToUpdate.completedDays.includes(day)
+      ? habitToUpdate.completedDays.filter((d) => d !== day)
+      : [...habitToUpdate.completedDays, day]
 
-    // Count consecutive days
+    // Calculate streak
     let streak = 0
-    const currentDate = new Date()
+    let longestStreak = habitToUpdate.longestStreak
+    let totalCompletions = habitToUpdate.totalCompletions
 
-    while (true) {
-      const dateString = format(currentDate, "yyyy-MM-dd")
-      const completed = sortedLogs.some((log) => log.date === dateString)
+    if (habitToUpdate.frequency === "daily") {
+      // For daily habits, count consecutive days
+      const sortedDays = [...completedDays].sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b))
 
-      if (completed) {
-        streak++
-        currentDate.setDate(currentDate.getDate() - 1)
-      } else {
-        break
+      let currentStreak = 0
+      for (let i = 0; i < DAYS.length; i++) {
+        if (sortedDays.includes(DAYS[i])) {
+          currentStreak++
+        } else {
+          break
+        }
       }
+      streak = currentStreak
+    } else {
+      // For weekly habits, just check if completed this week
+      streak = completedDays.length > 0 ? 1 : 0
     }
 
-    return streak
+    // Update total completions
+    if (!habitToUpdate.completedDays.includes(day) && completedDays.includes(day)) {
+      totalCompletions++
+    } else if (habitToUpdate.completedDays.includes(day) && !completedDays.includes(day)) {
+      totalCompletions = Math.max(0, totalCompletions - 1)
+    }
+
+    // Update longest streak
+    if (streak > longestStreak) {
+      longestStreak = streak
+    }
+
+    // Create updated habit
+    const updatedHabit = {
+      ...habitToUpdate,
+      completedDays,
+      streak,
+      longestStreak,
+      totalCompletions,
+    }
+
+    if (userId) {
+      try {
+        const { error } = await supabase
+          .from("habits")
+          .update({
+            completed_days: completedDays,
+            streak: streak,
+            longest_streak: longestStreak,
+            total_completions: totalCompletions,
+          })
+          .eq("id", habitId)
+
+        if (error) throw error
+
+        // Update local state
+        setHabits(habits.map((h) => (h.id === habitId ? updatedHabit : h)))
+      } catch (error) {
+        console.error("Error updating habit:", error)
+        toast({
+          title: "Error",
+          description: "Failed to update habit in database. Updating locally only.",
+          variant: "destructive",
+        })
+        // Fall back to local state update
+        setHabits(habits.map((h) => (h.id === habitId ? updatedHabit : h)))
+      }
+    } else {
+      // Just update local state if no user ID
+      setHabits(habits.map((h) => (h.id === habitId ? updatedHabit : h)))
+    }
   }
 
-  // Navigation functions
-  const goToPreviousMonth = () => setSelectedMonth(subMonths(selectedMonth, 1))
-  const goToNextMonth = () => setSelectedMonth(addMonths(selectedMonth, 1))
-  const goToCurrentMonth = () => setSelectedMonth(new Date())
+  const getCategoryLabel = (category: string) => {
+    return CATEGORIES.find((c) => c.value === category)?.label || category
+  }
+
+  const getCompletionRate = (habit: Habit) => {
+    const daysSinceStart = Math.max(
+      1,
+      Math.floor((Date.now() - new Date(habit.startDate).getTime()) / (1000 * 60 * 60 * 24)),
+    )
+
+    if (habit.frequency === "daily") {
+      return Math.round((habit.totalCompletions / daysSinceStart) * 100)
+    } else if (habit.frequency === "weekly") {
+      const weeksSinceStart = Math.max(1, Math.floor(daysSinceStart / 7))
+      return Math.round((habit.totalCompletions / weeksSinceStart) * 100)
+    } else {
+      const monthsSinceStart = Math.max(1, Math.floor(daysSinceStart / 30))
+      return Math.round((habit.totalCompletions / monthsSinceStart) * 100)
+    }
+  }
+
+  const openHabitDetails = (habit: Habit) => {
+    setSelectedHabit(habit)
+    setHabitDetailsOpen(true)
+  }
+
+  // New function to enhance habit with AI
+  const enhanceHabitWithAI = async (habit: Habit) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to use AI features",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Call the AI function to get suggestions
+      const aiSuggestions = {
+        identity: `I am someone who prioritizes ${habit.category} through consistent ${habit.name.toLowerCase()}`,
+        system: `Make it easier by: \n1. Setting a specific time\n2. Starting small\n3. Tracking progress visually`,
+      }
+
+      // Update the habit with AI suggestions
+      const updatedHabit = {
+        ...habit,
+        identity: aiSuggestions.identity,
+        system: aiSuggestions.system,
+        ai_suggestions: true
+      }
+
+      await handleUpdateHabit(updatedHabit)
+
+      toast({
+        title: "Habit enhanced",
+        description: "AI has provided suggestions for your habit system",
+      })
+    } catch (error) {
+      console.error("Error enhancing habit:", error)
+      toast({
+        title: "Error",
+        description: "Could not enhance habit with AI",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleUpdateHabit = async (updatedHabit: Habit) => {
+    setHabits(habits.map((h) => (h.id === updatedHabit.id ? updatedHabit : h)))
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div>
-          <h3 className="text-lg font-semibold">Track Your Habits</h3>
-          <p className="text-sm text-muted-foreground">Build consistency and track your progress over time</p>
-        </div>
-
-        <div className="flex gap-3">
-          <Select value={view} onValueChange={(value) => setView(value as "calendar" | "progress")}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue>{view === "calendar" ? "Calendar View" : "Progress View"}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="calendar" className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                <span>Calendar View</span>
-              </SelectItem>
-              <SelectItem value="progress" className="flex items-center gap-2">
-                <BarChart className="h-4 w-4" />
-                <span>Progress View</span>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button onClick={() => setFormOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Add Habit
-          </Button>
-        </div>
-      </div>
-
-      {view === "calendar" ? (
-        <>
-          <div className="flex items-center justify-between mb-4">
-            <Button variant="outline" size="icon" onClick={goToPreviousMonth}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-
-            <h3 className="text-xl font-bold">{format(selectedMonth, "MMMM yyyy")}</h3>
-
-            <Button variant="outline" size="icon" onClick={goToNextMonth}>
-              <ChevronRight className="h-4 w-4" />
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-lg">Habit Tracker</CardTitle>
+          <div className="flex gap-2">
+            <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "tracker" | "stats" | "systems")}>
+              <TabsList>
+                <TabsTrigger value="tracker">Tracker</TabsTrigger>
+                <TabsTrigger value="stats">Statistics</TabsTrigger>
+                <TabsTrigger value="systems">Systems</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button size="sm" onClick={() => setNewHabitOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Habit
             </Button>
           </div>
+        </div>
+      </CardHeader>
 
-          {isLoading ? (
-            <div className="flex justify-center items-center h-[400px]">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-          ) : habits.length === 0 ? (
-            <div className="text-center py-12">
-              <Calendar className="h-12 w-12 mx-auto text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-medium">No habits yet</h3>
-              <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
-                Start building better habits by adding your first habit to track.
-              </p>
-              <Button onClick={() => setFormOpen(true)} className="mt-4">
-                Add Your First Habit
-              </Button>
-            </div>
-          ) : (
-            <div className="border rounded-lg overflow-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="bg-muted/50">
-                    <th className="py-3 px-4 text-left font-medium text-sm sticky left-0 bg-muted/50 z-10">Habit</th>
-                    {daysInMonth.map((day) => (
-                      <th
-                        key={day.toISOString()}
-                        className={`py-3 px-1 text-center font-medium text-sm w-10 ${
-                          isSameDay(day, new Date()) ? "bg-primary/10" : ""
-                        }`}
-                      >
-                        <div className="flex flex-col items-center">
-                          <span className="text-xs text-muted-foreground">{format(day, "EEE")}</span>
-                          <span>{format(day, "d")}</span>
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {habits.map((habit) => (
-                    <tr key={habit.id} className="border-t hover:bg-muted/30">
-                      <td className="py-3 px-4 sticky left-0 bg-background z-10 w-60">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: habit.color || "#3b82f6" }}
-                          ></div>
-                          <span className="font-medium truncate">{habit.name}</span>
-                          {habit.frequency === "daily" ? (
-                            <span className="text-xs text-muted-foreground ml-1">Daily</span>
-                          ) : habit.frequency === "weekly" ? (
-                            <span className="text-xs text-muted-foreground ml-1">Weekly</span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground ml-1">Monthly</span>
-                          )}
-
-                          {habit.ai_suggestions && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="cursor-help">
-                                    <Sparkles className="h-3 w-3 text-amber-500" />
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-xs">AI-enhanced habit</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1 ml-5">
-                          <span>Streak: {getHabitStreak(habit.id)} days</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 rounded-full"
-                            onClick={() => setEditingHabit(habit)}
-                          >
-                            <Info className="h-3 w-3" />
-                          </Button>
+      <CardContent>
+        <TabsContent value="tracker" className="mt-0">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="text-left font-medium text-sm py-2 w-1/3">Habit</th>
+                  {DAYS.map((day) => (
+                    <th key={day} className="text-center font-medium text-sm py-2">
+                      {day}
+                    </th>
+                  ))}
+                  <th className="text-center font-medium text-sm py-2">Streak</th>
+                  <th className="text-center font-medium text-sm py-2 w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {habits.length > 0 ? (
+                  habits.map((habit) => (
+                    <tr key={habit.id} className="border-t">
+                      <td className="py-3">
+                        <div className="cursor-pointer" onClick={() => openHabitDetails(habit)}>
+                          <div className="font-medium text-sm">{habit.name}</div>
+                          <div className="text-xs text-muted-foreground">{getCategoryLabel(habit.category)}</div>
                         </div>
                       </td>
-                      {daysInMonth.map((day) => {
-                        const isCompleted = isHabitCompleted(habit.id, day)
-
-                        // Check if the date is eligible for this habit based on frequency
-                        let isEligible = true
-                        const dayOfWeek = format(day, "EEEE").toLowerCase()
-
-                        if (habit.frequency === "weekly" && habit.frequency_config) {
-                          // Check if this day of week is included in frequency config
-                          isEligible = habit.frequency_config.days?.includes(dayOfWeek)
-                        } else if (habit.frequency === "monthly" && habit.frequency_config) {
-                          // Check if this day of month is included in frequency config
-                          const dayOfMonth = day.getDate()
-                          isEligible = habit.frequency_config.days?.includes(dayOfMonth)
-                        }
-
-                        // Also check if the date is in the habit's active period
-                        const isInActivePeriod =
-                          (!habit.start_date || new Date(habit.start_date) <= day) &&
-                          (!habit.end_date || new Date(habit.end_date) >= day)
-
-                        const isDisabled = !isEligible || !isInActivePeriod || !isSameMonth(day, selectedMonth)
-
-                        return (
-                          <td
-                            key={day.toISOString()}
-                            className={`px-1 text-center align-middle ${isDisabled ? "opacity-30" : "cursor-pointer"} ${
-                              isSameDay(day, new Date()) ? "bg-primary/5" : ""
-                            }`}
-                            onClick={() => {
-                              if (!isDisabled) {
-                                toggleHabitCompletion(habit.id, day)
-                              }
-                            }}
+                      {DAYS.map((day) => (
+                        <td key={`${habit.id}-${day}`} className="text-center py-3">
+                          <Button
+                            variant={habit.completedDays.includes(day) ? "default" : "outline"}
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => toggleDay(habit.id, day)}
                           >
-                            <div className="flex justify-center">
-                              {isCompleted ? (
-                                <CheckCircle2 className="h-6 w-6 text-green-500" />
-                              ) : isDisabled ? (
-                                <div className="h-6 w-6 rounded-full border-2 border-dashed border-muted"></div>
-                              ) : (
-                                <div className="h-6 w-6 rounded-full border-2 border-muted hover:border-primary"></div>
-                              )}
-                            </div>
-                          </td>
-                        )
-                      })}
+                            {habit.completedDays.includes(day) ? (
+                              <Check className="h-4 w-4" />
+                            ) : (
+                              <span className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </td>
+                      ))}
+                      <td className="text-center py-3">
+                        <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary/10 text-primary font-medium text-sm">
+                          {habit.streak}
+                        </span>
+                      </td>
+                      <td className="text-center py-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => removeHabit(habit.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={9} className="text-center py-4 text-muted-foreground">
+                      No habits added yet
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="stats" className="mt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {habits.length > 0 ? (
+              habits.map((habit) => {
+                const completionRate = getCompletionRate(habit)
+                return (
+                  <Card key={habit.id} className="overflow-hidden">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-medium">{habit.name}</h3>
+                          <p className="text-xs text-muted-foreground">{getCategoryLabel(habit.category)}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => openHabitDetails(habit)}
+                        >
+                          <BarChart className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3 mt-4">
+                        <div>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span>Completion Rate</span>
+                            <span>{completionRate}%</span>
+                          </div>
+                          <Progress value={completionRate} className="h-2" />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="bg-muted/50 p-2 rounded-md">
+                            <div className="flex justify-center mb-1">
+                              <Trophy className="h-4 w-4 text-yellow-500" />
+                            </div>
+                            <div className="text-xl font-bold">{habit.longestStreak}</div>
+                            <div className="text-xs text-muted-foreground">Best Streak</div>
+                          </div>
+
+                          <div className="bg-muted/50 p-2 rounded-md">
+                            <div className="flex justify-center mb-1">
+                              <TrendingUp className="h-4 w-4 text-green-500" />
+                            </div>
+                            <div className="text-xl font-bold">{habit.streak}</div>
+                            <div className="text-xs text-muted-foreground">Current</div>
+                          </div>
+
+                          <div className="bg-muted/50 p-2 rounded-md">
+                            <div className="flex justify-center mb-1">
+                              <Calendar className="h-4 w-4 text-blue-500" />
+                            </div>
+                            <div className="text-xl font-bold">{habit.totalCompletions}</div>
+                            <div className="text-xs text-muted-foreground">Total</div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })
+            ) : (
+              <div className="col-span-2 text-center py-8 text-muted-foreground">No habits added yet</div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="systems" className="mt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {habits.map((habit) => (
+              <Card key={habit.id}>
+                <CardContent className="p-4">
+                  <div className="mb-4 flex justify-between items-start">
+                    <div>
+                      <h3 className="font-medium">{habit.name}</h3>
+                      <p className="text-sm text-muted-foreground">{getCategoryLabel(habit.category)}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => enhanceHabitWithAI(habit)}
+                    >
+                      <Sparkles className="h-4 w-4 mr-1 text-amber-500" />
+                      Enhance
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Identity</Label>
+                      <p className="text-sm">{habit.identity || "Click 'Enhance' to get AI suggestions"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs">System</Label>
+                      <p className="text-sm whitespace-pre-line">
+                        {habit.system || "Let AI help you build a system around this habit"}
+                      </p>
+                    </div>
+                    <Progress value={getCompletionRate(habit)} className="h-2" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+      <Dialog open={newHabitOpen} onOpenChange={setNewHabitOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Habit</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Habit Name</Label>
+              <Input
+                id="name"
+                value={newHabit.name}
+                onChange={(e) => setNewHabit({ ...newHabit, name: e.target.value })}
+                placeholder="Enter habit name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Textarea
+                id="description"
+                value={newHabit.description || ""}
+                onChange={(e) => setNewHabit({ ...newHabit, description: e.target.value })}
+                placeholder="Enter habit description"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="category">Category</Label>
+              <Select
+                value={newHabit.category}
+                onValueChange={(value) => setNewHabit({ ...newHabit, category: value })}
+              >
+                <SelectTrigger id="category">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((category) => (
+                    <SelectItem key={category.value} value={category.value}>
+                      {category.label}
+                    </SelectItem>
                   ))}
-                </tbody>
-              </table>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="frequency">Frequency</Label>
+              <Select
+                value={newHabit.frequency}
+                onValueChange={(value) =>
+                  setNewHabit({ ...newHabit, frequency: value as "daily" | "weekly" | "monthly" })
+                }
+              >
+                <SelectTrigger id="frequency">
+                  <SelectValue placeholder="Select frequency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="startDate">Start Date</Label>
+              <Input
+                id="startDate"
+                type="date"
+                value={newHabit.startDate}
+                onChange={(e) => setNewHabit({ ...newHabit, startDate: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="reminderTime">Reminder Time (Optional)</Label>
+              <Input
+                id="reminderTime"
+                type="time"
+                value={newHabit.reminderTime || ""}
+                onChange={(e) => setNewHabit({ ...newHabit, reminderTime: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewHabitOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={addHabit}>Add Habit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={habitDetailsOpen} onOpenChange={setHabitDetailsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selectedHabit?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedHabit && (
+            <div className="py-4">
+              <div className="grid gap-4">
+                <div>
+                  <h3 className="text-sm font-medium mb-1">Description</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedHabit.description || "No description provided"}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm font-medium mb-1">Category</h3>
+                    <p className="text-sm">{getCategoryLabel(selectedHabit.category)}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium mb-1">Frequency</h3>
+                    <p className="text-sm capitalize">{selectedHabit.frequency}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm font-medium mb-1">Start Date</h3>
+                    <p className="text-sm">{new Date(selectedHabit.startDate).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium mb-1">Reminder</h3>
+                    <p className="text-sm">{selectedHabit.reminderTime || "None"}</p>
+                  </div>
+                </div>
+
+                <div className="bg-muted/50 p-4 rounded-lg">
+                  <h3 className="text-sm font-medium mb-3">Statistics</h3>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <div className="text-2xl font-bold">{selectedHabit.streak}</div>
+                      <div className="text-xs text-muted-foreground">Current Streak</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{selectedHabit.longestStreak}</div>
+                      <div className="text-xs text-muted-foreground">Longest Streak</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{selectedHabit.totalCompletions}</div>
+                      <div className="text-xs text-muted-foreground">Total Completions</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span>Completion Rate</span>
+                      <span>{getCompletionRate(selectedHabit)}%</span>
+                    </div>
+                    <Progress value={getCompletionRate(selectedHabit)} className="h-2" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
-        </>
-      ) : (
-        <HabitProgress
-          habits={habits}
-          habitLogs={habitLogs}
-          selectedMonth={selectedMonth}
-          onPrevMonth={goToPreviousMonth}
-          onNextMonth={goToNextMonth}
-          onCurrentMonth={goToCurrentMonth}
-          onEditHabit={setEditingHabit}
-          onDeleteHabit={handleDeleteHabit}
-        />
-      )}
-
-      {/* Habit Form Dialog */}
-      <HabitForm
-        open={formOpen || !!editingHabit}
-        onOpenChange={(open) => {
-          setFormOpen(open)
-          if (!open) {
-            setEditingHabit(null)
-          }
-        }}
-        onSubmit={editingHabit ? handleUpdateHabit : handleAddHabit}
-        onDelete={editingHabit ? () => handleDeleteHabit(editingHabit.id) : undefined}
-        habit={editingHabit}
-      />
-    </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHabitDetailsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </CardContent>
+  </Card>
   )
 }

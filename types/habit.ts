@@ -17,6 +17,7 @@ export interface Habit {
   user_id: string
   identity?: string
   system?: string
+  ai_suggestions?: boolean
 }
 
 export interface HabitLog {
