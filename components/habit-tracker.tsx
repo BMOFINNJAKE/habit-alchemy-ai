@@ -699,5 +699,4 @@ export function HabitTracker() {
       </Dialog>
     </CardContent>
   </Card>
-  \
 }
